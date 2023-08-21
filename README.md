@@ -22,4 +22,6 @@ In order to run this file and use the related function files the following Pytho
 
 For installing Python packages refer to: https://packaging.python.org/en/latest/tutorials/installing-packages/
 
-Once all the packages are installed the user should run the "Moi_calculation_automatic_v3.py", this will take a little time and then a GUI window will appear. Now the user can use the document 
+Once all the packages are installed the user should run the "Moi_calculation_automatic_v3.py", this will take a little time and then a GUI window will appear. Now the user can use the document Trifilar Pendulum User manual.DOCX to operate the GUI.
+
+This Software can be used to calculate the MOI of an object without the manufacturing of a platform to put the object on if the object can be suspended from three wires/lines. The software can also be used to measure the period of oscillation of any oscillating object as long as the markers can be placed on the same plane (weight can be put in as any number as it doesn't affect the period measurement) 
