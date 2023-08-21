@@ -6,14 +6,20 @@ This repository is complementary to the https://data.mendeley.com/drafts/zww548r
 To use the software the user should run the file named: Moi_calculatrion_automatic_vXX.py. This will enable a GUI designed to perform a video track on two markers on an oscillating platform. by analysing the oscillation the Mass Moment of Inertia of the platform can be determined. The Software outputs, the MoI, the period of oscillation and a plot of the oscillation. 
 
 
-
-Furthermore, the user will find two images (marker_N=4.png and marker_N=5.png) on this repo, they are the markers that the software uses for the video tracking, the N=5 marker should be placed in the centre of the platform. refer to the building instructions on https://data.mendeley.com/drafts/zww548rfbn
+Furthermore, the user will find two images (marker_N=4.png and marker_N=5.png) on this repo, they are the markers that the software uses for the video tracking, the N=5 marker should be placed in the centre of the platform. refer to the building instructions which can be found at https://data.mendeley.com/drafts/zww548rfbn. The N=4 marker should be placed as far from the centre as possible whilst still fitting into the frame captured by the camera.
 
 ## How to use the software
 In order to run this file and use the related function files the following Python packages should be installed:
- *..
- *..
- *..
+  * OpenCV (cv2)
+  * Tkinter
+  * Matplotlib
+
+ If not installed with the devices Python version one also needs:
+ 
+  * Time
+  * OS
+  * DateTime
 
 For installing Python packages refer to: https://packaging.python.org/en/latest/tutorials/installing-packages/
 
+Once all the packages are installed the user should run the "Moi_calculation_automatic_v3.py", this will take a little time and then a GUI window will appear. Now the user can use the document 
