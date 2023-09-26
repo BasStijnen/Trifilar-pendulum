@@ -11,6 +11,7 @@ from functions_MoI_rig2 import Find_Moment_Of_Inertia, print_tau
 from track_marker_moi import track_all, no_audio, output_file_generation
 import tkinter as tk
 from tkinter import filedialog
+from tkinter import messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import time
@@ -25,6 +26,26 @@ def update_text_output():
     text_output.insert(tk.END, output_buffer)
     text_output.see(tk.END)  # Auto-scroll to the end of the text
     text_output.config(state=tk.DISABLED)
+#fucntion for info window
+def show_info_popup():
+    info_window = tk.Toplevel()
+    info_window.title("Software info and licence")
+    # Load and display an image
+    logo_image = tk.PhotoImage(file="UCD_logo.png")  # Replace with your image file
+    logo_label = tk.Label(info_window, image=logo_image)
+    logo_label.image = logo_image  # Keep a reference to the image
+    logo_label.grid(row=0, column=1, padx=10, pady=10, rowspan=3)
+
+    # Create a label with the information message
+    info_text = "This software was built to calculate the Mass Moment of Inertia of an object.\n"
+    info_text += "It is complementary to the Trifilar Pendulum project DOI: 10.17632/zww548rfbn.3\n"
+    info_text += "This project is licensed under a CCBY4.0\n\n"
+    info_text += "This project was developed at UCD School of Engineering"
+    
+    info_label = tk.Label(info_window, text=info_text)
+    info_label.grid(row=0, column=0, padx=10, pady=10)
+
+
 
 
 # main function that calculates MoI from a .mp4 video
@@ -95,18 +116,19 @@ def process_data():
     output_buffer +="Process: Calculation of MoI \n"
     window.update()
     update_text_output()
-    I, frame = Find_Moment_Of_Inertia(output_path, fps, m, R, L)
+    I, frame, angle = Find_Moment_Of_Inertia(output_path, fps, m, R, L)
     Tau = print_tau(output_path, fps)
     
     I_label_var.set(f"I:{I}")
     Tau_label_var.set(f"Tau: {Tau}")
+    angle_label_var.set(f"angle:{angle}")
     
     #plot the coresponding oscillation
     fig = plt.figure(figsize=(6,4), dpi=80)
     ax = fig.subplots()
     ax.plot(frame['frame_num'], frame['polar_12'])
-    ax.set_xlabel('time in seconds')
-    ax.set_ylabel('Motion')
+    ax.set_xlabel('time [s]')
+    ax.set_ylabel('rotation [Rad]')
  
     #clear previous plot and redraw the canvas
     if canvas:
@@ -232,7 +254,7 @@ kernal_size_entry.pack()
 
 #display output numbers MoI 
 I_label_var = tk.StringVar()
-I_label = tk.Label(output_frame, text="Mass Moment of Inertia:", anchor=tk.W)
+I_label = tk.Label(output_frame, text="Mass Moment of Inertiain in mm^2 kg:", anchor=tk.W)
 I_label.pack(fill=tk.X)
 
 I_value_label = tk.Label(output_frame, textvariable=I_label_var, anchor = tk.W)
@@ -240,11 +262,20 @@ I_value_label.pack(fill=tk.X)
 
 #display output number Tau
 Tau_label_var = tk.StringVar()
-Tau_label = tk.Label(output_frame, text = "Period of Oscillation",anchor = tk.W)
+Tau_label = tk.Label(output_frame, text = "Period of Oscillation in sec:",anchor = tk.W)
 Tau_label.pack(fill=tk.X)
 
 Tau_value_label = tk.Label(output_frame, textvariable= Tau_label_var, anchor=tk.W)
 Tau_value_label.pack(fill=tk.X)
+
+#display output number excitation angle
+angle_label_var = tk.StringVar()
+angle_label = tk.Label(output_frame, text = "Excitation angle in deg:",anchor = tk.W)
+angle_label.pack(fill=tk.X)
+
+angle_value_label = tk.Label(output_frame, textvariable= angle_label_var, anchor=tk.W)
+angle_value_label.pack(fill=tk.X)
+
 
 
 #create a canvas to display the plot
@@ -257,7 +288,8 @@ canvas.get_tk_widget().pack()
 Process_button = tk.Button(input_frame, text="Process", command=process_data)
 Process_button.pack()
 
-
+info_button = tk.Button(output_frame, text="Info", command=show_info_popup)
+info_button.pack(padx=20, pady=20)
 
 #start main event loop
 output_buffer = ""

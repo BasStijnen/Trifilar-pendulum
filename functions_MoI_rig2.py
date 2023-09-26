@@ -88,6 +88,11 @@ def find_tau(df,column):
     df['period'] = df.frame_num.diff()
     tau = df.period.mean()
     return tau 
+def find_angle(df):
+    df.loc[:,'angle'] = df.polar_1*180/np.pi
+    df.loc[:,'max_angle'] = df.iloc[scipy.signal.argrelextrema(df['angle'].values, np.greater_equal, order=n)[0]]['angle']
+    angle = (df.max_angle.max() - df.max_angle.min())/2
+    return angle
 
 def Average(lst):
     cleanedList = [x for x in lst if str(x) != 'nan']
@@ -111,6 +116,7 @@ def Find_Moment_Of_Inertia(path,fps, m, R, L):
     frame = Filter(frame)
     #fig, ax = plt.subplots()
     #plot_data(frame)
+    angle = find_angle(frame)
     col = list(frame.columns)
     col.pop(0)
     for column in frame[col]:
@@ -124,7 +130,8 @@ def Find_Moment_Of_Inertia(path,fps, m, R, L):
 
     #I = 'commented out'
     I = ((m)*g*(R**2)*(Tau**2)) / (4*L*(np.pi**2))
-    return I, frame
+    print(frame)
+    return I, frame, angle
 
 def print_tau(path,fps):
     all_files = glob.glob(os.path.join(path , "*.csv"))
