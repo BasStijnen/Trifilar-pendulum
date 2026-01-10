@@ -5,297 +5,205 @@ Created on Mon Jun 26 2023
 
 @author: basstijnen
 """
+
 from datetime import datetime
 import os
-from functions_MoI_rig2 import Find_Moment_Of_Inertia, print_tau
-from track_marker_moi import track_all, no_audio, output_file_generation
-import tkinter as tk
-from tkinter import filedialog
-from tkinter import messagebox
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import sys
 import time
 
+from functions_MoI_rig2 import Find_Moment_Of_Inertia, print_tau
+from track_marker_moi import track_all, no_audio, output_file_generation
+
+import numpy as np
+import matplotlib
+matplotlib.use("QtAgg")
+
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton,
+    QFileDialog, QMessageBox, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QPlainTextEdit
+)
 
 
-canvas = None
-#function to redirect standard output to the text widget for error control
-def update_text_output():
-    text_output.config(state=tk.NORMAL)
-    text_output.delete(1.0, tk.END)
-    text_output.insert(tk.END, output_buffer)
-    text_output.see(tk.END)  # Auto-scroll to the end of the text
-    text_output.config(state=tk.DISABLED)
-#fucntion for info window
-def show_info_popup():
-    info_window = tk.Toplevel()
-    info_window.title("Software info and licence")
-    # Load and display an image
-    logo_image = tk.PhotoImage(file="UCD_logo.png")  # Replace with your image file
-    logo_label = tk.Label(info_window, image=logo_image)
-    logo_label.image = logo_image  # Keep a reference to the image
-    logo_label.grid(row=0, column=1, padx=10, pady=10, rowspan=3)
+class MoIWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
 
-    # Create a label with the information message
-    info_text = "This software was built to calculate the Mass Moment of Inertia of an object.\n"
-    info_text += "It is complementary to the Trifilar Pendulum project DOI: 10.17632/zww548rfbn.3\n"
-    info_text += "This project is licensed under a CCBY4.0\n\n"
-    info_text += "This project was developed at UCD School of Engineering"
-    
-    info_label = tk.Label(info_window, text=info_text)
-    info_label.grid(row=0, column=0, padx=10, pady=10)
+        self.setWindowTitle("MoI Rig SW interface")
+        self.canvas = None
+        self.output_buffer = ""
 
+        central = QWidget()
+        self.setCentralWidget(central)
 
+        main_layout = QHBoxLayout(central)
+        input_layout = QGridLayout()
+        output_layout = QVBoxLayout()
 
+        main_layout.addLayout(input_layout)
+        main_layout.addLayout(output_layout)
 
-# main function that calculates MoI from a .mp4 video
-def process_data():
-    global output_buffer
-    global canvas
-    # Clear the Text widget before processing data
-    text_output.config(state=tk.NORMAL)
-    text_output.delete(1.0, tk.END)
-    text_output.config(state=tk.DISABLED)
+        # ---- Input widgets ----
+        row = 0
 
-    #get the selected input path
-    input_path = input_path_var.get()
-    #get the selected output path
-    output_path = output_path_var.get()
-    #set mass (m) in g
-    m_input = (mass_entry.get())
-    #set frame rate (fps)
-    fps_input = (fps_entry.get())
-    #set pendulum radius R in (mm)
-    R_input = (R_entry.get())
-    #set cable length in mm
-    L_input = (L_entry.get())
-    # set centre dot marker size
-    order1 = int(centre_dot_entry.get())
-    # set outer dot maker size
-    order2 = int(outer_dot_entry.get())
-    #set kernel size of both markers
-    size_of_kernel = int(kernal_size_entry.get())
-    #get time and day in order to label output folders
-    today = datetime.now()
-    ## check if any of the input fields are empty
-    if not all([m_input, fps_input, R_input, L_input]):
-        output_buffer += "Warning: Please fill in all input fields!\n"
-        update_text_output()
-        return  # Return without processing data if any input field is empty
+        def add_row(label, widget):
+            nonlocal row
+            input_layout.addWidget(QLabel(label), row, 0)
+            input_layout.addWidget(widget, row, 1)
+            row += 1
 
-    # Convert input values to floats
-    try:
-        m = float(m_input)
-        fps = float(fps_input)
-        R = float(R_input)
-        L = float(L_input)
-    except ValueError:
-        output_buffer += "Warning: Invalid input! Please enter numeric values.\n"
-        update_text_output()
-        return  # Return without processing data if any input is invalid
+        self.input_path = QLineEdit()
+        browse_input = QPushButton("Browse")
+        browse_input.clicked.connect(self.browse_input)
 
-    output_buffer += "Process: Generating output folder \n"
-    update_text_output()
-    window.update()
-    output_path = output_path + today.strftime('%Y%m%d%H%M')
-    os.mkdir(output_path)
-    # safe video without audio
-    output_buffer += "Process: Removing Audio from video file \n"
-    update_text_output()
-    window.update()
-    cap = no_audio(input_path, output_path)
-    # create output csv files
-    output_file_generation()
-    # perform tracking and safe to CSV files
-    output_buffer += "Process: Tracking markers and saving to CSV files \n"
-    update_text_output()
-    window.update()
-    track_all(cap, order1, order2, size_of_kernel)
-    # calculate the MoI
-    time.sleep(2)
-    output_buffer +="Process: Calculation of MoI \n"
-    window.update()
-    update_text_output()
-    I, frame, angle = Find_Moment_Of_Inertia(output_path, fps, m, R, L)
-    Tau = print_tau(output_path, fps)
-    
-    I_label_var.set(f"I:{I}")
-    Tau_label_var.set(f"Tau: {Tau}")
-    angle_label_var.set(f"angle:{angle}")
-    
-    #plot the coresponding oscillation
-    fig = plt.figure(figsize=(6,4), dpi=80)
-    ax = fig.subplots()
-    ax.plot(frame['frame_num'], frame['polar_12'])
-    ax.set_xlabel('time [s]')
-    ax.set_ylabel('rotation [Rad]')
- 
-    #clear previous plot and redraw the canvas
-    if canvas:
-        canvas.get_tk_widget().pack_forget()
-    canvas = FigureCanvasTkAgg(fig, master=output_frame)
-    canvas.draw()
-    canvas.get_tk_widget().pack()
-    output_buffer +="Done! \n"
-    update_text_output()
-    window.update()
+        input_layout.addWidget(QLabel("Input video:"), row, 0)
+        input_layout.addWidget(self.input_path, row, 1)
+        input_layout.addWidget(browse_input, row, 2)
+        row += 1
 
-def browse_input_path():
-    path = filedialog.askopenfilename(filetypes=[("Video Files", "*.mp4")])
-    input_path_var.set(path)
+        self.output_path = QLineEdit()
+        browse_output = QPushButton("Browse")
+        browse_output.clicked.connect(self.browse_output)
 
-def browse_output_path():
-    path = filedialog.askdirectory()
-    output_path_var.set(path)    
+        input_layout.addWidget(QLabel("Output path:"), row, 0)
+        input_layout.addWidget(self.output_path, row, 1)
+        input_layout.addWidget(browse_output, row, 2)
+        row += 1
 
-#create the main window
-window = tk.Tk()
+        self.mass = QLineEdit()
+        add_row("Mass (g):", self.mass)
 
-#set the window title
-window.title("MoI Rig SW interface")
+        self.fps = QLineEdit("50")
+        add_row("FPS:", self.fps)
 
-#create a text widget for terminal output
-text_output = tk.Text(window, height=3, width=50)
-text_output.pack(side=tk.BOTTOM, padx=10, pady=10)
+        self.R = QLineEdit("225")
+        add_row("Radius (mm):", self.R)
 
-# creat frame for input section
-input_frame = tk.Frame(window)
-input_frame.pack(side=tk.LEFT, padx=10, pady=10)
+        self.L = QLineEdit("1250")
+        add_row("Cable length (mm):", self.L)
 
-output_frame = tk.Frame(window)
-output_frame.pack(side=tk.RIGHT, padx=10, pady=10)
+        self.centre_order = QLineEdit("5")
+        add_row("Centre dot order:", self.centre_order)
 
-#create a label and entry for input path
-input_path_label = tk.Label(input_frame, text = "input video:")
-input_path_label.pack()
+        self.outer_order = QLineEdit("4")
+        add_row("Outer dot order:", self.outer_order)
 
-input_path_var = tk.StringVar()
-input_path_entry = tk.Entry(input_frame, textvariable=input_path_var)
-input_path_entry.pack()
+        self.kernel = QLineEdit("80")
+        add_row("Kernel size:", self.kernel)
 
-#create a button to browse input path
-input_path_button = tk.Button(input_frame, text="Browse", command=browse_input_path)
-input_path_button.pack()
+        process_btn = QPushButton("Process")
+        process_btn.clicked.connect(self.process_data)
+        input_layout.addWidget(process_btn, row, 0, 1, 3)
+        row += 1
 
-#create a label and entry for output path
-output_path_label = tk.Label(input_frame, text = "output path:")
-output_path_label.pack()
+        # ---- Output widgets ----
+        self.text_output = QPlainTextEdit()
+        self.text_output.setReadOnly(True)
+        output_layout.addWidget(self.text_output)
 
-output_path_var = tk.StringVar()
-output_path_entry = tk.Entry(input_frame, textvariable=output_path_var)
-output_path_entry.pack()
+        self.I_label = QLabel("I:")
+        self.Tau_label = QLabel("Tau:")
+        self.angle_label = QLabel("Angle:")
 
-#create a button to browse input path
-output_path_button = tk.Button(input_frame, text="Browse", command=browse_output_path)
-output_path_button.pack()
+        output_layout.addWidget(self.I_label)
+        output_layout.addWidget(self.Tau_label)
+        output_layout.addWidget(self.angle_label)
 
+        self.fig = Figure(figsize=(6, 4))
+        self.canvas = FigureCanvasQTAgg(self.fig)
+        output_layout.addWidget(self.canvas)
 
-# Create a label and entry for mass (m)
-mass_label = tk.Label(input_frame, text="Combined mass of table and object (g):")
-mass_label.pack()
+        info_btn = QPushButton("Info")
+        info_btn.clicked.connect(self.show_info)
+        output_layout.addWidget(info_btn)
 
-mass_entry = tk.Entry(input_frame)
-mass_entry.pack()
+    # ---------- Utility ----------
+    def log(self, text):
+        self.output_buffer += text + "\n"
+        self.text_output.setPlainText(self.output_buffer)
+        self.text_output.verticalScrollBar().setValue(
+            self.text_output.verticalScrollBar().maximum()
+        )
 
-# Create a label and entry for frame rate (fps)
-fps_label = tk.Label(input_frame, text="Frame Rate (fps):")
-fps_label.pack()
+    # ---------- Dialogs ----------
+    def browse_input(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select video", "", "Video Files (*.mp4)")
+        if path:
+            self.input_path.setText(path)
 
-default_fps = "50"
-fps_entry = tk.Entry(input_frame)
-fps_entry.insert(tk.END, default_fps)
-fps_entry.pack()
+    def browse_output(self):
+        path = QFileDialog.getExistingDirectory(self, "Select output directory")
+        if path:
+            self.output_path.setText(path)
 
-# Create a label and entry for the plate radius
-R_label = tk.Label(input_frame, text="Radius (mm):")
-R_label.pack()
+    def show_info(self):
+        QMessageBox.information(
+            self,
+            "Software info",
+            "Mass Moment of Inertia calculator\n"
+            "Trifilar Pendulum project\n"
+            "License: CC BY 4.0\n"
+            "UCD School of Engineering"
+        )
 
-default_R = "225"
-R_entry = tk.Entry(input_frame)
-R_entry.insert(tk.END, default_R)
-R_entry.pack()
+    # ---------- Core processing ----------
+    def process_data(self):
+        try:
+            m = float(self.mass.text())
+            fps = float(self.fps.text())
+            R = float(self.R.text())
+            L = float(self.L.text())
+            order1 = int(self.centre_order.text())
+            order2 = int(self.outer_order.text())
+            kernel = int(self.kernel.text())
+        except ValueError:
+            QMessageBox.warning(self, "Input error", "Invalid numeric input.")
+            return
 
-# Create a label and entry for cable length (mm)
-L_label = tk.Label(input_frame, text="Length of the cables in (mm):")
-L_label.pack()
+        input_path = self.input_path.text()
+        output_base = self.output_path.text()
 
-default_L = "1250"
-L_entry = tk.Entry(input_frame)
-L_entry.insert(tk.END, default_L)
-L_entry.pack()
+        if not input_path or not output_base:
+            QMessageBox.warning(self, "Input error", "Please select input and output paths.")
+            return
 
-# Create a label and entry for centre dot size
-centre_dot_label = tk.Label(input_frame, text="Centre dot size:")
-centre_dot_label.pack()
+        output_path = os.path.join(output_base, datetime.now().strftime('%Y%m%d%H%M'))
+        os.mkdir(output_path)
 
-centre_order = "5"
-centre_dot_entry = tk.Entry(input_frame)
-centre_dot_entry.insert(tk.END, centre_order)
-centre_dot_entry.pack()
+        self.log("Removing audio...")
+        cap = no_audio(input_path, output_path)
 
-# Create a label and entry for outer dot size
-outer_dot_label = tk.Label(input_frame, text="Outer dot size:")
-outer_dot_label.pack()
+        output_file_generation()
 
-outer_order = "4"
-outer_dot_entry = tk.Entry(input_frame)
-outer_dot_entry.insert(tk.END, outer_order)
-outer_dot_entry.pack()
+        self.log("Tracking markers...")
+        track_all(cap, order1, order2, kernel)
 
-# Create a label and entry for kernal size
-kernal_size_label = tk.Label(input_frame, text="Kernal size:")
-kernal_size_label.pack()
+        time.sleep(1)
 
-kernal_size = "80"
-kernal_size_entry = tk.Entry(input_frame)
-kernal_size_entry.insert(tk.END, kernal_size)
-kernal_size_entry.pack()
+        self.log("Calculating MoI...")
+        I, frame, angle = Find_Moment_Of_Inertia(output_path, fps, m, R, L)
+        Tau = print_tau(output_path, fps)
+
+        self.I_label.setText(f"I: {I}")
+        self.Tau_label.setText(f"Tau: {Tau}")
+        self.angle_label.setText(f"Angle: {angle}")
+
+        self.fig.clear()
+        ax = self.fig.add_subplot(111)
+        ax.plot(frame["frame_num"], frame["polar_12"])
+        ax.set_xlabel("time [s]")
+        ax.set_ylabel("rotation [rad]")
+        self.canvas.draw()
+
+        self.log("Done.")
 
 
-#display output numbers MoI 
-I_label_var = tk.StringVar()
-I_label = tk.Label(output_frame, text="Mass Moment of Inertiain in mm^2 kg:", anchor=tk.W)
-I_label.pack(fill=tk.X)
-
-I_value_label = tk.Label(output_frame, textvariable=I_label_var, anchor = tk.W)
-I_value_label.pack(fill=tk.X)
-
-#display output number Tau
-Tau_label_var = tk.StringVar()
-Tau_label = tk.Label(output_frame, text = "Period of Oscillation in sec:",anchor = tk.W)
-Tau_label.pack(fill=tk.X)
-
-Tau_value_label = tk.Label(output_frame, textvariable= Tau_label_var, anchor=tk.W)
-Tau_value_label.pack(fill=tk.X)
-
-#display output number excitation angle
-angle_label_var = tk.StringVar()
-angle_label = tk.Label(output_frame, text = "Excitation angle in deg:",anchor = tk.W)
-angle_label.pack(fill=tk.X)
-
-angle_value_label = tk.Label(output_frame, textvariable= angle_label_var, anchor=tk.W)
-angle_value_label.pack(fill=tk.X)
-
-
-
-#create a canvas to display the plot
-fig = plt.figure(figsize=(6,4), dpi=80)
-canvas = FigureCanvasTkAgg(fig, master=output_frame)
-canvas.draw()
-canvas.get_tk_widget().pack()
-
-#create a button to process the data
-Process_button = tk.Button(input_frame, text="Process", command=process_data)
-Process_button.pack()
-
-info_button = tk.Button(output_frame, text="Info", command=show_info_popup)
-info_button.pack(padx=20, pady=20)
-
-#start main event loop
-output_buffer = ""
-window.mainloop()
-
-
-
-
-
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MoIWindow()
+    window.resize(1100, 600)
+    window.show()
+    sys.exit(app.exec())

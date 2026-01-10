@@ -3,7 +3,7 @@
 
 import numpy as np
 import cv2
-from moviepy.editor import VideoFileClip
+from moviepy.video.io.VideoFileClip import VideoFileClip
 import MarkerTracker
 import math
 import csv
@@ -18,6 +18,8 @@ def no_audio(path_input, path_output):
     #change directory to out_put directory
     os.chdir(path_output)
     new_clip.write_videofile('No_audio.mp4')
+    videoclip.close()
+    new_clip.close()
     #create a VideoCapture object and read from inputfile
     cap = cv2.VideoCapture('No_audio.mp4')
     return cap
