@@ -54,7 +54,7 @@ def normalize(df: pd.DataFrame, fps: float) -> pd.DataFrame:
     point_nom = df[['frame_num', 'pos_0_0', 'pos_0_1',
                     'x_pos_centre', 'y_pos_centre']].copy()
 
-    point_nom.loc[:, 'frame_num'] = (point_nom['frame_num'] / fps).astype(float)
+    point_nom['frame_num'] = point_nom['frame_num'].to_numpy(dtype=float) / float(fps)
     point_nom.loc[:, 'x_nom_1'] = point_nom['pos_0_0'] - point_nom['x_pos_centre']
     point_nom.loc[:, 'y_nom_1'] = point_nom['pos_0_1'] - point_nom['y_pos_centre']
 
@@ -185,3 +185,32 @@ def print_tau(path, fps):
         Tau.append(find_tau(frame, column))
 
     return Average(Tau)
+
+def calculate_expected_error(I_object, MoI_platform, L, R, m, sigma_L=0.001, sigma_R=0.001,
+                             sigma_m=0.001, sigma_T=0.001, g=9.80665):
+    """
+    Calculate expected relative MoI error for a trifilar suspension system.
+
+    """
+    I_total = MoI_platform + I_object
+
+    # Compute period
+    T = np.sqrt((4 * np.pi**2 * L * I_total) / (m * g * R**2))
+
+    # Partial derivatives
+    dI_dm = (g * R**2 / (4 * np.pi**2 * L)) * T**2
+    dI_dR = (2 * m * g * R / (4 * np.pi**2 * L)) * T**2
+    dI_dL = -(m * g * R**2 / (4 * np.pi**2 * L**2)) * T**2
+    dI_dT = (2 * m * g * R**2 / (4 * np.pi**2 * L)) * T
+
+    # Total uncertainty
+    sigma_I = np.sqrt(
+        (dI_dm * sigma_m)**2 +
+        (dI_dR * sigma_R)**2 +
+        (dI_dL * sigma_L)**2 +
+        (dI_dT * sigma_T)**2
+    )
+
+    # Avoid division by zero
+    relative_error = np.where(I_object > 0, sigma_I / I_object, np.nan)
+    return relative_error

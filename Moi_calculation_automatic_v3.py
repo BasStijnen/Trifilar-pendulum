@@ -1,136 +1,165 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jun 26 2023
+updated 2026
 
 @author: basstijnen
 """
 
 from datetime import datetime
 import os
-import sys
 import time
 
-from functions_MoI_rig2 import Find_Moment_Of_Inertia, print_tau
-from track_marker_moi import track_all, no_audio, output_file_generation
-
-import numpy as np
-import matplotlib
-matplotlib.use("QtAgg")
-
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton,
-    QFileDialog, QMessageBox, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QPlainTextEdit
+    QApplication, QWidget, QLabel, QLineEdit, QPushButton,
+    QFileDialog, QTextEdit, QVBoxLayout, QHBoxLayout,
+    QMessageBox, QGroupBox, QCheckBox, QProgressBar
 )
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt
+
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+
+from functions_MoI_rig2 import Find_Moment_Of_Inertia, print_tau, calculate_expected_error
+from track_marker_moi import track_all, no_audio, output_file_generation, frame_count
 
 
-class MoIWindow(QMainWindow):
+class MoIApp(QWidget):
     def __init__(self):
         super().__init__()
-
         self.setWindowTitle("MoI Rig SW interface")
+
         self.canvas = None
         self.output_buffer = ""
+        self.platform_moi = None  # stored in kg·m² internally
+        self.init_ui()
 
-        central = QWidget()
-        self.setCentralWidget(central)
+    # ---------------- UI ---------------- #
 
-        main_layout = QHBoxLayout(central)
-        input_layout = QGridLayout()
+    def init_ui(self):
+        main_layout = QHBoxLayout(self)
+
+        input_box = QGroupBox("Input")
+        output_box = QGroupBox("Output")
+
+        main_layout.addWidget(input_box)
+        main_layout.addWidget(output_box)
+
+        input_layout = QVBoxLayout()
         output_layout = QVBoxLayout()
 
-        main_layout.addLayout(input_layout)
-        main_layout.addLayout(output_layout)
+        input_box.setLayout(input_layout)
+        output_box.setLayout(output_layout)
 
-        # ---- Input widgets ----
-        row = 0
-
-        def add_row(label, widget):
-            nonlocal row
-            input_layout.addWidget(QLabel(label), row, 0)
-            input_layout.addWidget(widget, row, 1)
-            row += 1
-
+        # ---- File inputs ----
         self.input_path = QLineEdit()
-        browse_input = QPushButton("Browse")
-        browse_input.clicked.connect(self.browse_input)
-
-        input_layout.addWidget(QLabel("Input video:"), row, 0)
-        input_layout.addWidget(self.input_path, row, 1)
-        input_layout.addWidget(browse_input, row, 2)
-        row += 1
+        btn_in = QPushButton("Browse video")
+        btn_in.clicked.connect(self.browse_input)
 
         self.output_path = QLineEdit()
-        browse_output = QPushButton("Browse")
-        browse_output.clicked.connect(self.browse_output)
+        btn_out = QPushButton("Browse output")
+        btn_out.clicked.connect(self.browse_output)
 
-        input_layout.addWidget(QLabel("Output path:"), row, 0)
-        input_layout.addWidget(self.output_path, row, 1)
-        input_layout.addWidget(browse_output, row, 2)
-        row += 1
+        input_layout.addWidget(QLabel("Input video"))
+        input_layout.addWidget(self.input_path)
+        input_layout.addWidget(btn_in)
 
-        self.mass = QLineEdit()
-        add_row("Mass (g):", self.mass)
+        input_layout.addWidget(QLabel("Output folder"))
+        input_layout.addWidget(self.output_path)
+        input_layout.addWidget(btn_out)
+        self.calibration_toggle = QCheckBox("Calibration mode (platform only)")
+        self.calibration_toggle.setChecked(True)
+        input_layout.addWidget(self.calibration_toggle)
 
-        self.fps = QLineEdit("50")
-        add_row("FPS:", self.fps)
 
-        self.R = QLineEdit("225")
-        add_row("Radius (mm):", self.R)
+        # ---- Parameters ----
+        self.mass_table = self.add_entry(input_layout, "Mass of table (g)")
+        self.mass_object = self.add_entry(input_layout, "Mass of object (g)", "0")
+        self.fps = self.add_entry(input_layout, "Frame rate (fps)", "50")
+        self.R = self.add_entry(input_layout, "Radius (mm)", "225")
+        self.L = self.add_entry(input_layout, "Cable length (mm)", "1250")
+        self.centre_marker = self.add_entry(input_layout, "Centre marker veins", "5")
+        self.outer_marker = self.add_entry(input_layout, "Outer marker veins", "4")
+        self.kernel = self.add_entry(input_layout, "Marker size", "80")
 
-        self.L = QLineEdit("1250")
-        add_row("Cable length (mm):", self.L)
+        # ---- Buttons ----
+        btn_process = QPushButton("Process")
+        btn_process.clicked.connect(self.process_data)
+        input_layout.addWidget(btn_process)
 
-        self.centre_order = QLineEdit("5")
-        add_row("Centre dot order:", self.centre_order)
+        # ---- Output labels ----
+        self.I_label = QLabel("Object MoI kg·m²:")
+        self.Tau_label = QLabel("Tau sec:")
+        self.angle_label = QLabel("Angle deg:")
+        self.error_label = QLabel("Expected MoI error %: ")
+        self.platform_label = QLabel("Platform MoI [kg·m²]: not calibrated")
 
-        self.outer_order = QLineEdit("4")
-        add_row("Outer dot order:", self.outer_order)
-
-        self.kernel = QLineEdit("80")
-        add_row("Kernel size:", self.kernel)
-
-        process_btn = QPushButton("Process")
-        process_btn.clicked.connect(self.process_data)
-        input_layout.addWidget(process_btn, row, 0, 1, 3)
-        row += 1
-
-        # ---- Output widgets ----
-        self.text_output = QPlainTextEdit()
-        self.text_output.setReadOnly(True)
-        output_layout.addWidget(self.text_output)
-
-        self.I_label = QLabel("I:")
-        self.Tau_label = QLabel("Tau:")
-        self.angle_label = QLabel("Angle:")
-
+        output_layout.addWidget(self.platform_label)
         output_layout.addWidget(self.I_label)
         output_layout.addWidget(self.Tau_label)
         output_layout.addWidget(self.angle_label)
+        output_layout.addWidget(self.error_label)
 
-        self.fig = Figure(figsize=(6, 4))
-        self.canvas = FigureCanvasQTAgg(self.fig)
+        # ---- Matplotlib canvas ----
+        self.fig = plt.figure(figsize=(6, 4), dpi=80)
+        self.canvas = FigureCanvas(self.fig)
         output_layout.addWidget(self.canvas)
 
-        info_btn = QPushButton("Info")
-        info_btn.clicked.connect(self.show_info)
-        output_layout.addWidget(info_btn)
+        # ---- Progress Bar ----
+        self.progress = QProgressBar()
+        self.progress.setRange(0,100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(True)
+        self.progress.setFormat("%p%")
+        output_layout.addWidget(self.progress)
 
-    # ---------- Utility ----------
-    def log(self, text):
-        self.output_buffer += text + "\n"
-        self.text_output.setPlainText(self.output_buffer)
-        self.text_output.verticalScrollBar().setValue(
-            self.text_output.verticalScrollBar().maximum()
+        # ---- Log output ----
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+
+        output_layout.addWidget(self.log)
+
+        # ---- Info button ----
+        btn_info = QPushButton("Info")
+        btn_info.clicked.connect(self.show_info)
+        output_layout.addWidget(btn_info)
+
+        self.calibration_toggle.stateChanged.connect(self.update_mode_ui)
+        self.update_mode_ui()
+
+
+
+    def update_mode_ui(self):
+        is_calibration = self.calibration_toggle.isChecked()
+
+    def set_progress(self, value: int, message: str):
+        self.progress.setValue(value)
+        if message:
+            self.log_msg(message)
+        QApplication.processEvents()
+
+    def add_entry(self, layout, label, default=""):
+        layout.addWidget(QLabel(label))
+        entry = QLineEdit()
+        entry.setText(default)
+        layout.addWidget(entry)
+        return entry
+
+    # ---------------- Actions ---------------- #
+
+    def log_msg(self, msg):
+        self.output_buffer += msg + "\n"
+        self.log.setText(self.output_buffer)
+        self.log.verticalScrollBar().setValue(
+            self.log.verticalScrollBar().maximum()
         )
+        QApplication.processEvents()
 
-    # ---------- Dialogs ----------
     def browse_input(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select video", "", "Video Files (*.mp4)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select video", "", "Video files (*.mp4)"
+        )
         if path:
             self.input_path.setText(path)
 
@@ -140,57 +169,189 @@ class MoIWindow(QMainWindow):
             self.output_path.setText(path)
 
     def show_info(self):
-        QMessageBox.information(
-            self,
-            "Software info",
-            "Mass Moment of Inertia calculator\n"
-            "Trifilar Pendulum project\n"
-            "License: CC BY 4.0\n"
-            "UCD School of Engineering"
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Software info and licence")
+
+        text = (
+            "This software calculates the Mass Moment of Inertia.\n\n"
+            "Complementary to Trifilar Pendulum project\n"
+            "DOI: 10.17632/zww548rfbn.3\n\n"
+            "Licensed under CC BY 4.0\n"
+            "Developed at UCD School of Engineering"
+        )
+        msg.setText(text)
+
+        pix = QPixmap("UCD_logo.png")
+        if not pix.isNull():
+            msg.setIconPixmap(pix.scaledToWidth(120, Qt.TransformationMode.SmoothTransformation))
+
+        msg.exec()
+    def show_calibration_dialog(self):
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Calibration mode")
+        msg.setIcon(QMessageBox.Icon.Warning)
+
+        msg.setText("You are in calibration mode!")
+        msg.setInformativeText(
+            "Choose how this calibration run should be handled."
         )
 
-    # ---------- Core processing ----------
+        cancel_btn = msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        append_btn = msg.addButton(
+            "Append and average calibration",
+            QMessageBox.ButtonRole.ActionRole
+        )
+        overwrite_btn = msg.addButton(
+            "Overwrite current calibration",
+            QMessageBox.ButtonRole.DestructiveRole
+        )
+
+        msg.exec()
+
+        clicked = msg.clickedButton()
+
+        if clicked == cancel_btn:
+            return "cancel"
+        elif clicked == append_btn:
+            return "append"
+        elif clicked == overwrite_btn:
+            return "overwrite"
+        else:
+            return "cancel"
+
+    
+
     def process_data(self):
+     
+        # ---------- Read mode ----------
+        is_calibration = self.calibration_toggle.isChecked()
+
+        # ---------- Calibration dialog ----------
+        if is_calibration:
+            calibration_decision = self.show_calibration_dialog()
+            if calibration_decision == "cancel":
+                self.log_msg("Calibration cancelled by user.")
+                return
+        else:
+            calibration_decision = None
+
+            # ---------- Read inputs ----------
         try:
-            m = float(self.mass.text())
+            m = float(self.mass_table.text()) + float(self.mass_object.text())  # g
             fps = float(self.fps.text())
-            R = float(self.R.text())
-            L = float(self.L.text())
-            order1 = int(self.centre_order.text())
-            order2 = int(self.outer_order.text())
+            R = float(self.R.text())  # mm
+            L = float(self.L.text())  # mm
+
+            order1 = int(self.centre_marker.text())
+            order2 = int(self.outer_marker.text())
             kernel = int(self.kernel.text())
         except ValueError:
-            QMessageBox.warning(self, "Input error", "Invalid numeric input.")
+            QMessageBox.warning(self, "Error", "Invalid numeric input")
             return
 
-        input_path = self.input_path.text()
-        output_base = self.output_path.text()
+        in_path = self.input_path.text()
+        out_root = self.output_path.text()
 
-        if not input_path or not output_base:
-            QMessageBox.warning(self, "Input error", "Please select input and output paths.")
+        if not in_path or not out_root:
+            QMessageBox.warning(self, "Error", "Select input and output paths")
             return
 
-        output_path = os.path.join(output_base, datetime.now().strftime('%Y%m%d%H%M'))
-        os.mkdir(output_path)
+        # small helper function for keeping track of progress
+        total_frames = frame_count(in_path)
 
-        self.log("Removing audio...")
-        cap = no_audio(input_path, output_path)
+        def tracking_progress(frame_idx):
+            percent = 15 + int(35 * frame_idx / total_frames)  # 15 → 65
+            self.progress.setValue(percent)
+            QApplication.processEvents()
 
+
+
+            # ---------- Processing ----------
+        self.progress.setValue(0)
+        self.log_msg("Starting process...")
+
+        out_path = out_root + datetime.now().strftime("%Y%m%d%H%M")
+        os.mkdir(out_path)
+    
+        self.set_progress(5, "Removing audio")
+        cap = no_audio(in_path, out_path)
+
+        self.set_progress(10, "Generating CSV files")
         output_file_generation()
 
-        self.log("Tracking markers...")
-        track_all(cap, order1, order2, kernel)
+        self.set_progress(15, "Tracking markers")
+        total_frames = frame_count(in_path)
+        track_all(cap, order1, order2, kernel, progress_cb=tracking_progress)
 
         time.sleep(1)
 
-        self.log("Calculating MoI...")
-        I, frame, angle = Find_Moment_Of_Inertia(output_path, fps, m, R, L)
-        Tau = print_tau(output_path, fps)
+        self.set_progress(65, "Calculating MoI")
+        I_total, frame, angle = Find_Moment_Of_Inertia(out_path, fps, m, R, L)
+        self.set_progress(80, "Calculating period")
+        Tau = print_tau(out_path, fps)
 
-        self.I_label.setText(f"I: {I}")
-        self.Tau_label.setText(f"Tau: {Tau}")
-        self.angle_label.setText(f"Angle: {angle}")
+            # Convert once, consistently
+        I_total_kgm2 = I_total / 1e6  # mm²·g → kg·m²
+        self.set_progress(90, "Updating plots and results")
+            # ---------- CALIBRATION ----------
+        if is_calibration:
+            if self.platform_moi is None:
+                self.platform_moi = I_total_kgm2
+                self.log_msg("Platform MoI stored (first calibration)")
 
+            elif calibration_decision == "append":
+                self.platform_moi = 0.5 * (self.platform_moi + I_total_kgm2)
+                self.log_msg("Platform MoI updated (running average)")
+
+            elif calibration_decision == "overwrite":
+                self.platform_moi = I_total_kgm2
+                self.log_msg("Platform MoI overwritten")
+
+            self.platform_label.setText(f"Platform MoI kg·m²:{self.platform_moi:.2f}")
+            self.Tau_label.setText(f"Tau: {Tau:.2f}")
+            self.angle_label.setText(f"Angle: {angle:.2f}")
+            self.error_label.setText("Expected MoI error [%]: —")
+
+                # ---------- Plot ----------
+            self.fig.clear()
+            ax = self.fig.add_subplot(111)
+            ax.plot(frame["frame_num"], frame["polar_12"])
+            ax.set_xlabel("time [s]")
+            ax.set_ylabel("rotation [rad]")
+            self.canvas.draw()
+
+
+
+            self.set_progress(100, "Calibration finished")
+            return
+
+        # ---------- MEASUREMENT ----------
+        if self.platform_moi is None:
+            QMessageBox.warning(
+                self,
+                "No calibration",
+                "Please perform a calibration before measuring."
+            )
+            return
+
+        I_object = I_total_kgm2 - self.platform_moi
+
+        expected_error = calculate_expected_error(
+            I_object=I_object,
+            MoI_platform=self.platform_moi,
+            L=L / 1000,
+            R=R / 1000,
+            m=m / 1000
+        )
+
+        self.I_label.setText(f"Object MoI: {I_object:.2f} kg·m²")
+        self.Tau_label.setText(f"Tau: {Tau:.2f}")
+        self.angle_label.setText(f"Angle: {angle:.2f}")
+        self.error_label.setText(
+            f"Expected MoI error [%]: {expected_error * 100:.2f}"
+        )
+
+        # ---------- Plot ----------
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         ax.plot(frame["frame_num"], frame["polar_12"])
@@ -198,12 +359,49 @@ class MoIWindow(QMainWindow):
         ax.set_ylabel("rotation [rad]")
         self.canvas.draw()
 
-        self.log("Done.")
+        self.log_msg("Measurement complete")
 
+        self.set_progress(100, "Done!")
+
+
+# ---------------- Entry point ---------------- #
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MoIWindow()
+    app = QApplication([])
+
+    app.setStyleSheet("""
+    QWidget {
+        background-color: #121212;
+        color: #e0e0e0;
+        font-size: 12px;
+    }
+    QLineEdit, QTextEdit {
+        background-color: #1e1e1e;
+        border: 1px solid #444;
+        padding: 4px;
+    }
+    QPushButton {
+        background-color: #2d89ef;
+        color: white;
+        padding: 6px;
+        border-radius: 4px;
+    }
+    QPushButton:hover {
+        background-color: #1b5fa7;
+    }
+    QGroupBox {
+        border: 1px solid #444;
+        margin-top: 6px;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        left: 10px;
+        padding: 0 3px;
+    }
+    """)
+
+    window = MoIApp()
     window.resize(1100, 600)
     window.show()
-    sys.exit(app.exec())
+    app.exec()
+

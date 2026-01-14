@@ -38,20 +38,31 @@ def output_file_generation():
     centre_dot.close
     Point_1.close
 
+def frame_count(video_path):
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return total_frames
 
 
 
-def track_all(cap, order1, order2, size_of_kernel):
+def track_all(cap, order1, order2, size_of_kernel, progress_cb=None):
  # Main loop
     tracker1 = MarkerTracker.MarkerTracker(order1, size_of_kernel, 5.0)
     tracker2 = MarkerTracker.MarkerTracker(order2, size_of_kernel, 5.0)
     counter = 0
+    frame_idx = 0
     while cap.isOpened():
-        counter += 1
+        
         # Read a new image from the file.
         ret, frame = cap.read()
-
         
+        
+        if progress_cb and frame_idx %5 ==0:
+            progress_cb(frame_idx)
+        counter += 1
+        # generate index for progress bar
+        frame_idx += 1
         # Halt if reading failed.
         if not ret:
             print('end of frame')
@@ -83,7 +94,7 @@ def track_all(cap, order1, order2, size_of_kernel):
         key_value = cv2.waitKey(1)
         if key_value & 0xFF == ord('q'):
             break
-
+    cap.release()
     cv2.destroyAllWindows()
     return frame
 
